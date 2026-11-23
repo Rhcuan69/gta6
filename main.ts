@@ -1,24 +1,48 @@
-// A working gta6-01 entry (Node 22, standard library only): the game is this directory's
-// game/ folder, plain static files a desktop browser loads offline (game/index.html and its ES
-// modules, no library and no network request), and the program hands it in. It copies game/ and
-// screenshots/ from beside this file to /output and writes /output/dossier.json, the summary the
-// judge reads, with the vendored make.fun library. Only the plumbing, not an open world: Block
-// Dodger, a plain 2D canvas game where a paddle dodges falling blocks and catches coins, with a
-// title screen, score, lives and levels, game over and restart, flat colours and no sound. Build
-// your own open-world crime game in its place (three.js or any library you vendor under game/),
-// put your 3 or 4 PNG or JPEG screenshots in screenshots/ (the first by name is the cover) and run it.
-//
-// Serve it locally with `node serve.ts`, then open http://localhost:8080.
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// Neon Harbor entrypoint: gathers the finished open-world crime game in game/
+// and its four gameplay screenshots, checks the screenshots are exactly the
+// ones listed in shots.json and small enough for the scorer, then hands the
+// whole package to /output with a dossier.json the judge reads.
 
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+
+// --- Neon Harbor screenshot gate -------------------------------------------
+// The scorer refuses an entry whose screenshots do not match its manifest or
+// whose files are too big, so confirm the set here and stop loudly instead of
+// handing in a package the judge would throw out.
+const SHOT_LIMIT_BYTES = 256 * 1024;
+
+const manifest = JSON.parse(readFileSync(join(here, 'shots.json'), 'utf8'));
+const wantedShots = manifest.map((shot) => shot.name);
+const shotFolder = join(here, 'screenshots');
+if (!existsSync(shotFolder)) {
+  throw new Error(
+    `Neon Harbor is missing its screenshots folder (${shotFolder}); expected shots: ${wantedShots.join(', ')}`,
+  );
+}
+const presentShots = readdirSync(shotFolder).filter(
+  (entry) => entry.endsWith('.jpg') || entry.endsWith('.jpeg') || entry.endsWith('.png'),
+);
+const missingShots = wantedShots.filter((name) => !presentShots.includes(name));
+const extraShots = presentShots.filter((name) => !wantedShots.includes(name));
+if (missingShots.length > 0 || extraShots.length > 0) {
+  throw new Error(
+    `Neon Harbor screenshots do not match shots.json — missing: ${missingShots.join(', ') || 'none'}, unexpected: ${extraShots.join(', ') || 'none'}`,
+  );
+}
+for (const name of wantedShots) {
+  const bytes = statSync(join(shotFolder, name)).size;
+  if (bytes > SHOT_LIMIT_BYTES) {
+    throw new Error(
+      `Neon Harbor screenshot ${name} is ${bytes} bytes, over the 256 KiB cap; retake it smaller before submitting`,
+    );
+  }
+}
 
 mkdirSync(out, { recursive: true });
 cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
